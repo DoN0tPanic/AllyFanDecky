@@ -6,7 +6,6 @@ ASSET_NAME="AllyFanDecky.tar.gz"
 PLUGIN_FOLDER_NAME="AllyFanControl"
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "Missing: $1"; exit 1; }; }
-
 need_cmd curl
 need_cmd tar
 need_cmd mktemp
@@ -29,6 +28,16 @@ pick_plugin_dir() {
   exit 1
 }
 
+sudo_if_needed() {
+  # Usage: sudo_if_needed <cmd...>
+  # Runs command normally; if it fails due to permissions, retries with sudo.
+  if "$@"; then
+    return 0
+  fi
+  echo "[*] Permission issue detected, retrying with sudo: $*"
+  sudo "$@"
+}
+
 PLUGIN_BASE="$(pick_plugin_dir)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -44,7 +53,7 @@ ASSET_URL="$(curl -fsSL "$API_URL" \
 
 if [[ -z "${ASSET_URL}" ]]; then
   echo "ERROR: Could not find ${ASSET_NAME} in latest release assets."
-  echo "Create a tag vX.Y.Z to trigger the release workflow and attach the asset."
+  echo "Create/publish a release that includes ${ASSET_NAME}."
   exit 1
 fi
 
@@ -63,8 +72,24 @@ fi
 
 DEST="$PLUGIN_BASE/$PLUGIN_FOLDER_NAME"
 echo "[*] Installing to: $DEST"
-rm -rf "$DEST"
-cp -a "$SRC" "$DEST"
+
+# Remove old install (handle root-owned installs)
+if [[ -e "$DEST" ]]; then
+  if rm -rf "$DEST" 2>/dev/null; then
+    :
+  else
+    echo "[*] Existing install not removable as user, using sudo..."
+    sudo rm -rf "$DEST"
+  fi
+fi
+
+# Copy new install (handle root-owned plugin dir)
+if cp -a "$SRC" "$DEST" 2>/dev/null; then
+  :
+else
+  echo "[*] Target directory not writable as user, using sudo copy..."
+  sudo cp -a "$SRC" "$DEST"
+fi
 
 echo "[OK] Installed: $PLUGIN_FOLDER_NAME"
 echo "[*] Open Decky -> Plugins -> Ally Fan Control"
